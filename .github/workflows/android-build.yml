@@ -21,10 +21,13 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK licenses
+      - name: Install Android platform 35
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
           yes | sdkmanager --licenses || true
+
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
@@ -41,8 +44,8 @@ jobs:
       - name: Check Gradle
         run: gradle --version
 
-      - name: Build debug APK with detailed logs
-        run: gradle assembleDebug --stacktrace --info --no-daemon
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace --info --no-daemon || gradle assembleDebug --stacktrace --info --no-daemon
 
       - name: Upload build logs
         if: always()
