@@ -1,155 +1,175 @@
 package com.lml.overlayrobot;
 
+import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.drawable.shapes.OvalShape;
+import android.graphics.Path;
+import android.graphics.RectF;
+import android.os.Handler;
 import android.view.View;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+
 public class RobotCursorView extends View {
-    private float targetX;
-    private float targetY;
-    private float currentX;
-    private float currentY;
-    private String label;
-    private long animationStart;
-    private Paint headPaint;
-    private Paint visierePaint;
-    private Paint eyePaint;
-    private Paint brainPaint;
-    private Paint borderPaint;
-    private Paint energyPaint;
 
-    public RobotCursorView(android.content.Context context) {
+    private final Paint headPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint visorPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint eyePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint brainPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint bodyPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint armPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint haloPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint particlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    private String currentLabel = "READY";
+    private float centerX = 100;
+    private float centerY = 100;
+
+    private final List<Particle> particles = new ArrayList<>();
+    private final Random random = new Random();
+    private final Handler handler = new Handler();
+    private int colorPhase = 0;
+
+    private static class Particle {
+        float x, y, vx, vy, life;
+        Particle(float x, float y) {
+            this.x = x; this.y = y;
+            this.vx = (float) (Math.random() * 4 - 2);
+            this.vy = (float) (Math.random() * 4 - 2);
+            this.life = 30 + random.nextInt(40);
+        }
+        void update() {
+            x += vx; y += vy;
+            life -= 1.2f;
+            vx *= 0.96f; vy *= 0.96f;
+        }
+    }
+
+    public RobotCursorView(Context context) {
         super(context);
-        init();
-    }
+        setBackgroundColor(Color.TRANSPARENT);
 
-    public RobotCursorView(android.content.Context context, android.util.AttributeSet attrs) {
-        super(context, attrs);
-        init();
-    }
-
-    private void init() {
-        headPaint = new Paint();
         headPaint.setColor(0xFFFFFFFF);
         headPaint.setStyle(Paint.Style.FILL);
-
-        visierePaint = new Paint();
-        visierePaint.setColor(0xFF000000);
-        visierePaint.setStyle(Paint.Style.FILL);
-
-        eyePaint = new Paint();
+        visorPaint.setColor(0xFF111111);
         eyePaint.setColor(0xFF00FFFF);
         eyePaint.setStyle(Paint.Style.FILL);
+        brainPaint.setColor(0xFFAA00FF);
+        bodyPaint.setColor(0xFF222233);
+        armPaint.setColor(0xFF00E5FF);
+        armPaint.setStrokeWidth(8f);
+        armPaint.setStyle(Paint.Style.STROKE);
+        haloPaint.setStyle(Paint.Style.STROKE);
+        haloPaint.setStrokeWidth(3f);
+        labelPaint.setColor(Color.WHITE);
+        labelPaint.setTextSize(32f);
+        labelPaint.setShadowLayer(8f, 0, Color.BLACK);
 
-        brainPaint = new Paint();
-        brainPaint.setColor(0xFFFFD700);
-        brainPaint.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < 12; i++) {
+            particles.add(new Particle(0, 0));
+        }
 
-        borderPaint = new Paint();
-        borderPaint.setColor(0xFF00FFFF);
-        borderPaint.setStyle(Paint.Style.STROKE);
-        borderPaint.setStrokeWidth(2);
+        startAnimation();
+    }
 
-        energyPaint = new Paint();
-        energyPaint.setColor(0xFF9D00FF);
-        energyPaint.setStyle(Paint.Style.STROKE);
-        energyPaint.setStrokeWidth(1);
+    private void startAnimation() {
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                updateParticles();
+                colorPhase = (colorPhase + 1) % 360;
+                invalidate();
+                handler.postDelayed(this, 16);
+            }
+        }, 16);
+    }
 
-        currentX = 100;
-        currentY = 100;
-        targetX = 100;
-        targetY = 100;
-        label = "LML AGI";
+    private void updateParticles() {
+        for (Particle p : particles) {
+            p.update();
+            if (p.life <= 0) {
+                p.x = centerX + random.nextInt(60) - 30;
+                p.y = centerY + random.nextInt(60) - 30;
+                p.life = 25 + random.nextInt(35);
+            }
+        }
     }
 
     public void moveTo(float x, float y, String label) {
-        targetX = x;
-        targetY = y;
-        this.label = label;
-        animationStart = System.currentTimeMillis();
-        postInvalidateDelayed(33);
+        this.centerX = x;
+        this.centerY = y;
+        if (label != null) this.currentLabel = label;
+        invalidate();
+    }
+
+    public void setLabel(String label) {
+        if (label != null) this.currentLabel = label;
+        invalidate();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
-        // Animation de mouvement
-        long elapsed = System.currentTimeMillis() - animationStart;
-        float progress = Math.min(1.0f, elapsed / 300.0f);
-        currentX = currentX + (targetX - currentX) * progress;
-        currentY = currentY + (targetY - currentY) * progress;
+        float cx = centerX;
+        float cy = centerY;
+        int neon = ThemePulse.getNeonColor();
 
-        float size = 60;
-        float headRadius = size / 2;
+        // Halo
+        haloPaint.setColor(neon);
+        haloPaint.setAlpha(90);
+        canvas.drawCircle(cx, cy - 10, 95, haloPaint);
+        haloPaint.setAlpha(160);
+        canvas.drawCircle(cx, cy - 10, 75, haloPaint);
 
-        // Halo holographique
-        int haloColor = ThemePulse.color(System.currentTimeMillis());
-        Paint haloPaint = new Paint();
-        haloPaint.setColor(haloColor);
-        haloPaint.setStyle(Paint.Style.STROKE);
-        haloPaint.setStrokeWidth(2);
-        haloPaint.setAlpha(100);
-        canvas.drawCircle(currentX, currentY, headRadius + 15, haloPaint);
-        canvas.drawCircle(currentX, currentY, headRadius + 25, haloPaint);
+        // Body
+        RectF body = new RectF(cx - 38, cy + 25, cx + 38, cy + 95);
+        canvas.drawRoundRect(body, 18, 18, bodyPaint);
 
-        // Tête robot
-        canvas.drawCircle(currentX, currentY, headRadius, headPaint);
+        // Arms
+        canvas.drawLine(cx - 38, cy + 45, cx - 75, cy + 25, armPaint);
+        canvas.drawLine(cx + 38, cy + 45, cx + 75, cy + 25, armPaint);
 
-        // Visière (noir)
-        canvas.drawRect(currentX - headRadius + 5, currentY - headRadius / 2,
-                       currentX - 5, currentY + headRadius / 2, visierePaint);
+        // Head
+        canvas.drawCircle(cx, cy - 5, 48, headPaint);
 
-        // Yeux (cyan néon)
-        float eyeY = currentY - headRadius / 3;
-        canvas.drawCircle(currentX + 8, eyeY - 5, 5, eyePaint);
-        canvas.drawCircle(currentX + 8, eyeY + 5, 5, eyePaint);
+        // Visière
+        RectF visor = new RectF(cx - 32, cy - 25, cx + 32, cy + 8);
+        canvas.drawRoundRect(visor, 12, 12, visorPaint);
 
-        // Cerveau dans dôme transparent
-        canvas.drawCircle(currentX, currentY + headRadius + 10, 8, brainPaint);
-        canvas.drawCircle(currentX, currentY + headRadius + 10, 10, borderPaint);
+        // Eyes (neon)
+        eyePaint.setColor(neon);
+        canvas.drawCircle(cx - 16, cy - 8, 7, eyePaint);
+        canvas.drawCircle(cx + 16, cy - 8, 7, eyePaint);
 
-        // Corps robot
-        float bodyTop = currentY + headRadius + 5;
-        canvas.drawRect(currentX - 12, bodyTop, currentX + 12, bodyTop + 35, headPaint);
+        // Brain glow
+        brainPaint.setColor(0xFFAA00FF);
+        canvas.drawCircle(cx, cy - 35, 11, brainPaint);
+        brainPaint.setColor(0xFFFF00FF);
+        canvas.drawCircle(cx, cy - 35, 6, brainPaint);
 
-        // Bras gauche
-        canvas.drawLine(currentX - 12, bodyTop + 10, currentX - 30, bodyTop + 15, headPaint);
-        canvas.drawCircle(currentX - 30, bodyTop + 15, 4, headPaint);
+        // Dome
+        Paint dome = new Paint(Paint.ANTI_ALIAS_FLAG);
+        dome.setColor(0x33FFFFFF);
+        dome.setStyle(Paint.Style.FILL);
+        canvas.drawArc(new RectF(cx - 42, cy - 55, cx + 42, cy - 5), 200, 140, true, dome);
 
-        // Bras droit
-        canvas.drawLine(currentX + 12, bodyTop + 10, currentX + 30, bodyTop + 15, headPaint);
-        canvas.drawCircle(currentX + 30, bodyTop + 15, 4, headPaint);
-
-        // Anneaux d'énergie
-        long time = System.currentTimeMillis();
-        int ring1Alpha = (int) (150 + 100 * Math.sin(time / 500.0));
-        int ring2Alpha = (int) (150 + 100 * Math.sin(time / 800.0));
-
-        Paint ring1 = new Paint();
-        ring1.setColor(0xFF00FFFF);
-        ring1.setStyle(Paint.Style.STROKE);
-        ring1.setStrokeWidth(1);
-        ring1.setAlpha(ring1Alpha);
-        canvas.drawCircle(currentX, currentY + 20, 50 + (int)(20 * Math.sin(time / 1000.0)), ring1);
-
-        Paint ring2 = new Paint();
-        ring2.setColor(0xFF9D00FF);
-        ring2.setStyle(Paint.Style.STROKE);
-        ring2.setStrokeWidth(1);
-        ring2.setAlpha(ring2Alpha);
-        canvas.drawCircle(currentX, currentY + 20, 70 + (int)(20 * Math.cos(time / 1200.0)), ring2);
+        // Particles
+        particlePaint.setColor(neon);
+        for (Particle p : particles) {
+            if (p.life > 0) {
+                particlePaint.setAlpha((int) (p.life * 6));
+                canvas.drawCircle(p.x, p.y, 3.5f, particlePaint);
+            }
+        }
 
         // Label
-        Paint labelPaint = new Paint();
-        labelPaint.setColor(0xFF00FFFF);
-        labelPaint.setTextSize(12);
-        labelPaint.setFakeBoldText(true);
-        canvas.drawText("LML AGI", currentX - 20, currentY - headRadius - 15, labelPaint);
-
-        if (progress < 1.0f) {
-            postInvalidateDelayed(33);
+        if (currentLabel != null) {
+            canvas.drawText(currentLabel, cx - currentLabel.length() * 9, cy - 75, labelPaint);
         }
     }
 }

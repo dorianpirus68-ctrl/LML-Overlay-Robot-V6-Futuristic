@@ -2,81 +2,97 @@ package com.lml.overlayrobot;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.List;
 
 public class ActionRecorder {
-    private Context context;
-    private SharedPreferences prefs;
-    private List<ActionStep> recordedActions;
-    private boolean recording;
+
+    private static final String PREFS = "lml_recorder";
+    private static final String KEY = "recorded_steps";
+
+    private final Context context;
+    private final List<ActionStep> steps = new ArrayList<>();
+    private boolean recording = false;
 
     public ActionRecorder(Context context) {
         this.context = context;
-        this.prefs = context.getSharedPreferences("lml_actions", Context.MODE_PRIVATE);
-        this.recordedActions = new ArrayList<>();
-        this.recording = false;
-        loadActions();
+        load();
     }
 
     public void startRecording() {
         recording = true;
-        recordedActions.clear();
-        MemoryStore.getInstance().log("rec_start", "Enregistrement démarré");
+        steps.clear();
     }
 
     public void stopRecording() {
         recording = false;
-        saveActions();
-        MemoryStore.getInstance().log("rec_stop", "Enregistrement arrêté (" + recordedActions.size() + " actions)");
-    }
-
-    public void addAction(ActionStep step) {
-        if (recording && step != null) {
-            recordedActions.add(step);
-        }
-    }
-
-    public void saveActions() {
-        SharedPreferences.Editor editor = prefs.edit();
-        for (int i = 0; i < recordedActions.size(); i++) {
-            editor.putString("action_" + i, recordedActions.get(i).toLine());
-        }
-        editor.putInt("action_count", recordedActions.size());
-        editor.apply();
-    }
-
-    public void loadActions() {
-        recordedActions.clear();
-        int count = prefs.getInt("action_count", 0);
-        for (int i = 0; i < count; i++) {
-            String line = prefs.getString("action_" + i, null);
-            if (line != null) {
-                ActionStep step = ActionStep.fromLine(line);
-                if (step != null) {
-                    recordedActions.add(step);
-                }
-            }
-        }
-    }
-
-    public void clear() {
-        recordedActions.clear();
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.clear();
-        editor.apply();
-        MemoryStore.getInstance().log("clear", "Actions effacées");
-    }
-
-    public List<ActionStep> getActions() {
-        return new ArrayList<>(recordedActions);
-    }
-
-    public int getCount() {
-        return recordedActions.size();
+        save();
     }
 
     public boolean isRecording() {
         return recording;
+    }
+
+    public void recordClick(float x, float y, String text, String desc, String className, String pkg, android.graphics.Rect bounds) {
+        if (!recording) return;
+        ActionStep step = new ActionStep(x, y, text, desc, className, pkg, bounds);
+        steps.add(step);
+        MemoryStore.log(context, "Recorder", "RECORD_CLICK", text != null ? text : "no_text");
+    }
+
+    public List<ActionStep> getSteps() {
+        return new ArrayList<>(steps);
+    }
+
+    public void clear() {
+        steps.clear();
+        save();
+    }
+
+    private void save() {
+        try {
+            JSONArray array = new JSONArray();
+            for (ActionStep s : steps) {
+                JSONObject o = new JSONObject();
+                o.put("x", s.x);
+                o.put("y", s.y);
+                o.put("text", s.targetText);
+                o.put("desc", s.targetDesc);
+                o.put("class", s.className);
+                o.put("pkg", s.packageName);
+                array.put(o);
+            }
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            prefs.edit().putString(KEY, array.toString()).apply();
+        } catch (Exception e) {
+            Log.e("ActionRecorder", "Save failed", e);
+        }
+    }
+
+    private void load() {
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            String json = prefs.getString(KEY, "[]");
+            JSONArray array = new JSONArray(json);
+            steps.clear();
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject o = array.getJSONObject(i);
+                ActionStep s = new ActionStep();
+                s.x = (float) o.optDouble("x");
+                s.y = (float) o.optDouble("y");
+                s.targetText = o.optString("text");
+                s.targetDesc = o.optString("desc");
+                s.className = o.optString("class");
+                s.packageName = o.optString("pkg");
+                steps.add(s);
+            }
+        } catch (Exception e) {
+            Log.e("ActionRecorder", "Load failed", e);
+        }
     }
 }

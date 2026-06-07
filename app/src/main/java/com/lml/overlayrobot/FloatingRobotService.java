@@ -1,5 +1,6 @@
 package com.lml.overlayrobot;
 
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
@@ -9,347 +10,241 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
 import android.view.Gravity;
-import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
+
 import androidx.core.app.NotificationCompat;
 
+import java.util.List;
+
 public class FloatingRobotService extends Service {
+
     private WindowManager windowManager;
-    private View panelView;
+    private LinearLayout floatingPanel;
     private RobotCursorView robotView;
     private ScreenMapOverlayView mapView;
-    private SmartActionEngine actionEngine;
-    private BrainCore brainCore;
-    private int currentMode = RobotMode.POINT_ONLY;
-    private boolean isRecording = false;
-    private int modeIndex = 0;
+    private ActionRecorder recorder;
+    private SmartActionEngine engine;
+    private BrainCore brain;
+    private LmlAccessibilityService accessibilityService;
+
+    private WindowManager.LayoutParams panelParams;
+    private WindowManager.LayoutParams robotParams;
+    private WindowManager.LayoutParams mapParams;
+
+    private RobotMode currentMode = RobotMode.POINTAGE;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        recorder = new ActionRecorder(this);
+        brain = new BrainCore();
+        engine = new SmartActionEngine(this, recorder, brain);
+
         createNotificationChannel();
-        startForeground(1, new NotificationCompat.Builder(this, "robot_channel")
-                .setContentTitle("LML Robot")
-                .setContentText("Running...")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .build());
+        startForeground(1, createNotification());
 
-        windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-        brainCore = new BrainCore();
-    }
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
         createFloatingPanel();
-        createRobotViews();
-        connectAccessibilityService();
-        return START_STICKY;
+        createRobotView();
+        createMapView();
+
+        accessibilityService = LmlAccessibilityService.getInstance();
+        if (accessibilityService != null) {
+            accessibilityService.setRecorder(recorder);
+            accessibilityService.setMapView(mapView);
+        }
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel("robot_channel",
-                    "LML Robot", NotificationManager.IMPORTANCE_LOW);
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
+            NotificationChannel channel = new NotificationChannel(
+                    "lml_robot_channel", "LML Robot", NotificationManager.IMPORTANCE_LOW);
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(channel);
         }
+    }
+
+    private Notification createNotification() {
+        return new NotificationCompat.Builder(this, "lml_robot_channel")
+                .setContentTitle("LML Overlay Robot V6")
+                .setContentText("Futuristic robot is active")
+                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .build();
     }
 
     private void createFloatingPanel() {
-        int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_SYSTEM_ALERT;
+        floatingPanel = new LinearLayout(this);
+        floatingPanel.setOrientation(LinearLayout.VERTICAL);
+        floatingPanel.setBackgroundColor(0xDD000000);
+        floatingPanel.setPadding(12, 12, 12, 12);
 
-        panelView = createPanelContent();
-        
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                480, 800,
-                type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+        TextView handle = new TextView(this);
+        handle.setText("LML ROBOT v6");
+        handle.setTextColor(0xFF00E5FF);
+        handle.setTextSize(14);
+        handle.setGravity(Gravity.CENTER);
+        floatingPanel.addView(handle);
+
+        addButton("BRAIN", 0xFFAA00FF, v -> brain.showBrainUI(this));
+        addButton("SCAN", 0xFF00E5FF, v -> performScan());
+        addButton("REC", 0xFFFF0055, v -> startRec());
+        addButton("STOP REC", 0xFF888888, v -> stopRec());
+        addButton("PLAY POINTAGE", 0xFF00FF9F, v -> playPointage());
+        addButton("PLAY SIMULATION", 0xFFFFFF00, v -> playSimulation());
+        addButton("AUTO SAFE", 0xFF00AAFF, v -> setMode(RobotMode.AUTO_SAFE));
+        addButton("ASSISTÉ", 0xFFFFAA00, v -> setMode(RobotMode.ASSISTED));
+        addButton("VALIDER ACTION", 0xFF00FF00, v -> validateAction());
+        addButton("PASSER", 0xFF888888, v -> {});
+        addButton("CLEAR", 0xFFFF5555, v -> recorder.clear());
+        addButton("STOP URGENCE", 0xFFFF0000, v -> stopUrgence());
+
+        panelParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ?
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY :
+                        WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.RIGHT;
-        params.x = 0;
-        params.y = 100;
+        panelParams.gravity = Gravity.TOP | Gravity.START;
+        panelParams.x = 60;
+        panelParams.y = 120;
 
-        windowManager.addView(panelView, params);
-        makePanelDraggable();
+        handle.setOnTouchListener(new View.OnTouchListener() {
+            private int initialX, initialY;
+            private float initialTouchX, initialTouchY;
+
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        initialX = panelParams.x;
+                        initialY = panelParams.y;
+                        initialTouchX = event.getRawX();
+                        initialTouchY = event.getRawY();
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        panelParams.x = initialX + (int) (event.getRawX() - initialTouchX);
+                        panelParams.y = initialY + (int) (event.getRawY() - initialTouchY);
+                        windowManager.updateViewLayout(floatingPanel, panelParams);
+                        return true;
+                }
+                return false;
+            }
+        });
+
+        windowManager.addView(floatingPanel, panelParams);
     }
 
-    private View createPanelContent() {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setBackgroundColor(0xFF0A0E27);
-        panel.setPadding(10, 10, 10, 10);
-
-        // Title
-        TextView titleView = new TextView(this);
-        titleView.setText("LML ROBOT");
-        titleView.setTextColor(0xFF00BCD4);
-        titleView.setTextSize(14);
-        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
-        panel.addView(titleView);
-
-        // Status TextView
-        TextView statusView = new TextView(this);
-        statusView.setText("Ready");
-        statusView.setTextColor(0xFFCCCCCC);
-        statusView.setTextSize(10);
-        statusView.setPadding(0, 5, 0, 10);
-        panel.addView(statusView);
-
-        // ScrollView for buttons
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout buttonLayout = new LinearLayout(this);
-        buttonLayout.setOrientation(LinearLayout.VERTICAL);
-
-        // SCAN button
-        Button btnScan = createButton("SCAN", 0xFF00BCD4);
-        btnScan.setOnClickListener(v -> {
-            scanScreen();
-            updateStatus(statusView, "Scan completed");
-        });
-        buttonLayout.addView(btnScan);
-
-        // REC button
-        Button btnRec = createButton("REC", 0xFFFF0000);
-        btnRec.setOnClickListener(v -> {
-            startRecording();
-            updateStatus(statusView, "Recording...");
-        });
-        buttonLayout.addView(btnRec);
-
-        // STOP REC button
-        Button btnStopRec = createButton("STOP REC", 0xFFFFAA00);
-        btnStopRec.setOnClickListener(v -> {
-            stopRecording();
-            updateStatus(statusView, "Recording stopped");
-        });
-        buttonLayout.addView(btnStopRec);
-
-        // PLAY POINTAGE button
-        Button btnPlayPoint = createButton("PLAY POINTAGE", 0xFF00FF00);
-        btnPlayPoint.setOnClickListener(v -> {
-            playPointOnly();
-            updateStatus(statusView, "Playing (point only)");
-        });
-        buttonLayout.addView(btnPlayPoint);
-
-        // PLAY SIMULATION button
-        Button btnPlaySim = createButton("PLAY SIMULATION", 0xFFFFFF00);
-        btnPlaySim.setOnClickListener(v -> {
-            playSimulation();
-            updateStatus(statusView, "Playing (simulation)");
-        });
-        buttonLayout.addView(btnPlaySim);
-
-        // AUTO SAFE button
-        Button btnAutoSafe = createButton("AUTO SAFE", 0xFF00FFFF);
-        btnAutoSafe.setOnClickListener(v -> {
-            playAutoSafe();
-            updateStatus(statusView, "Playing (auto safe)");
-        });
-        buttonLayout.addView(btnAutoSafe);
-
-        // ASSISTÉ button
-        Button btnAssisted = createButton("ASSISTÉ", 0xFFFF00FF);
-        btnAssisted.setOnClickListener(v -> {
-            playAssisted();
-            updateStatus(statusView, "Playing (assisted)");
-        });
-        buttonLayout.addView(btnAssisted);
-
-        // BRAIN button
-        Button btnBrain = createButton("BRAIN", 0xFFFF6B00);
-        btnBrain.setOnClickListener(v -> {
-            showBrainStatus(statusView);
-        });
-        buttonLayout.addView(btnBrain);
-
-        // CLEAR button
-        Button btnClear = createButton("CLEAR", 0xFF888888);
-        btnClear.setOnClickListener(v -> {
-            clearRecording();
-            updateStatus(statusView, "Cleared");
-        });
-        buttonLayout.addView(btnClear);
-
-        // STOP URGENCE button
-        Button btnEmergency = createButton("STOP URGENCE", 0xFFFF0000);
-        btnEmergency.setOnClickListener(v -> {
-            emergencyStop();
-            updateStatus(statusView, "STOPPED");
-        });
-        buttonLayout.addView(btnEmergency);
-
-        // EXIT button
-        Button btnExit = createButton("EXIT", 0xFF666666);
-        btnExit.setOnClickListener(v -> stopSelf());
-        buttonLayout.addView(btnExit);
-
-        scroll.addView(buttonLayout);
-        panel.addView(scroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.MATCH_PARENT));
-
-        return panel;
-    }
-
-    private Button createButton(String text, int color) {
+    private void addButton(String text, int color, View.OnClickListener listener) {
         Button btn = new Button(this);
         btn.setText(text);
+        btn.setTextColor(Color.WHITE);
         btn.setBackgroundColor(color);
-        btn.setTextColor(0xFF000000);
-        btn.setTextSize(10);
-        btn.setPadding(5, 5, 5, 5);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 3, 0, 3);
-        btn.setLayoutParams(params);
-        return btn;
+        btn.setTextSize(11);
+        btn.setPadding(8, 4, 8, 4);
+        btn.setOnClickListener(listener);
+        floatingPanel.addView(btn);
     }
 
-    private void updateStatus(TextView tv, String text) {
-        tv.setText(text);
-    }
-
-    private void createRobotViews() {
+    private void createRobotView() {
         robotView = new RobotCursorView(this);
-        mapView = new ScreenMapOverlayView(this);
-
-        WindowManager.LayoutParams robotParams = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+        robotParams = new WindowManager.LayoutParams(
+                220, 220,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ?
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY :
+                        WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT);
-
+        robotParams.gravity = Gravity.TOP | Gravity.START;
+        robotParams.x = 300;
+        robotParams.y = 400;
         windowManager.addView(robotView, robotParams);
-        windowManager.addView(mapView, robotParams);
     }
 
-    private void makePanelDraggable() {
-        float[] lastPos = {0, 0};
-        panelView.setOnTouchListener((v, event) -> {
-            WindowManager.LayoutParams params = (WindowManager.LayoutParams) panelView.getLayoutParams();
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    lastPos[0] = event.getRawX();
-                    lastPos[1] = event.getRawY();
-                    break;
-                case MotionEvent.ACTION_MOVE:
-                    params.x += (int)(event.getRawX() - lastPos[0]);
-                    params.y += (int)(event.getRawY() - lastPos[1]);
-                    windowManager.updateViewLayout(panelView, params);
-                    lastPos[0] = event.getRawX();
-                    lastPos[1] = event.getRawY();
-                    break;
+    private void createMapView() {
+        mapView = new ScreenMapOverlayView(this);
+        mapParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ?
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY :
+                        WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.TRANSLUCENT);
+        windowManager.addView(mapView, mapParams);
+    }
+
+    private void performScan() {
+        if (accessibilityService != null) {
+            List<ScreenNode> nodes = accessibilityService.scanCurrentScreen();
+            if (nodes != null && mapView != null) {
+                mapView.updateNodes(nodes);
             }
-            return true;
-        });
-    }
-
-    private void connectAccessibilityService() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            actionEngine = new SmartActionEngine(service, robotView);
-            service.setActionEngine(actionEngine);
-            actionEngine.setCallback(message -> {
-                // Update UI with message
-            });
+            brain.getSwarm().pulseAgent("Vision", "SCAN COMPLETE");
         }
     }
 
-    private void scanScreen() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.scanNow();
-            mapView.setNodes(service.getLastNodes());
-        }
+    private void startRec() {
+        recorder.startRecording();
+        if (robotView != null) robotView.setLabel("REC ON");
     }
 
-    private void startRecording() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.startRecording();
-            isRecording = true;
-        }
+    private void stopRec() {
+        recorder.stopRecording();
+        if (robotView != null) robotView.setLabel("REC OFF");
     }
 
-    private void stopRecording() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.stopRecording();
-            isRecording = false;
-        }
-    }
-
-    private void clearRecording() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.clearRecording();
-        }
-    }
-
-    private void playPointOnly() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.playPointOnly();
-        }
+    private void playPointage() {
+        engine.setMode(RobotMode.POINTAGE);
+        engine.executePointage(recorder.getSteps(), robotView);
     }
 
     private void playSimulation() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.playSimulation();
+        engine.setMode(RobotMode.SIMULATION);
+        engine.executeSimulation(recorder.getSteps(), robotView, mapView);
+    }
+
+    private void setMode(RobotMode mode) {
+        currentMode = mode;
+        engine.setMode(mode);
+        if (robotView != null) robotView.setLabel(mode.name());
+    }
+
+    private void validateAction() {
+        if (currentMode == RobotMode.ASSISTED && accessibilityService != null) {
+            List<ActionStep> steps = recorder.getSteps();
+            if (!steps.isEmpty()) {
+                ActionStep last = steps.get(steps.size() - 1);
+                accessibilityService.performClick(last.x, last.y);
+            }
         }
     }
 
-    private void playAutoSafe() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.playAutoSafe();
-        }
-    }
-
-    private void playAssisted() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.playAssisted();
-        }
-    }
-
-    private void emergencyStop() {
-        LmlAccessibilityService service = LmlAccessibilityService.INSTANCE;
-        if (service != null) {
-            service.emergencyStop();
-        }
-    }
-
-    private void showBrainStatus(TextView statusView) {
-        String status = brainCore.getStatus();
-        statusView.setText(status);
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        if (panelView != null) windowManager.removeView(panelView);
-        if (robotView != null) windowManager.removeView(robotView);
-        if (mapView != null) windowManager.removeView(mapView);
+    private void stopUrgence() {
+        if (robotView != null) robotView.setLabel("STOPPED");
+        if (mapView != null) mapView.updateNodes(null);
+        recorder.stopRecording();
     }
 
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (floatingPanel != null) windowManager.removeView(floatingPanel);
+        if (robotView != null) windowManager.removeView(robotView);
+        if (mapView != null) windowManager.removeView(mapView);
     }
 }

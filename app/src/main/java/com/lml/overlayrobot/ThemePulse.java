@@ -1,24 +1,24 @@
 package com.lml.overlayrobot;
 
+import android.graphics.Color;
+
 public class ThemePulse {
-    private static final int[] COLORS = {
-        0xFF00BCD4, // Cyan
-        0xFFFF6B9D, // Pink
-        0xFFFF6B00, // Gold
-        0xFF00FF00, // Green
-        0xFF9D00FF  // Violet
-    };
 
-    public static int color(long timeMs) {
-        int index = (int) ((timeMs / 300) % COLORS.length);
-        return COLORS[index];
+    private static float hue = 180f;
+
+    public static int getNeonColor() {
+        hue = (hue + 1.2f) % 360f;
+        float[] hsv = {hue, 1f, 1f};
+        return Color.HSVToColor(hsv);
     }
 
-    public static int darkPanel() {
-        return 0xFF0A0E27;
-    }
+    public static int getCyan() { return 0xFF00E5FF; }
+    public static int getMagenta() { return 0xFFFF00AA; }
+    public static int getPurple() { return 0xFFAA00FF; }
+    public static int getLime() { return 0xFF00FF9F; }
 
-    public static int darkPanelSemi() {
-        return 0xCC0A0E27;
+    public static int pulseAlpha(int baseColor, float factor) {
+        int alpha = (int) (255 * (0.6f + 0.4f * factor));
+        return (baseColor & 0x00FFFFFF) | (alpha << 24);
     }
 }
