@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewClicked|typeViewFocused|typeWindowStateChanged|typeWindowContentChanged"
-    android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
-    android:canPerformGestures="true"
+    android:accessibilityEventTypes="typeWindowContentChanged|typeViewClicked|typeViewFocused|typeViewScrolled|typeViewSelected"
+    android:accessibilityFeedbackType="feedbackVisual"
+    android:notificationTimeout="80"
     android:canRetrieveWindowContent="true"
-    android:description="@string/service_label"
-    android:notificationTimeout="80" />
+    android:canRequestTouchExplorationMode="true"
+    android:canPerformGestures="true"
+    android:summary="LML Futuristic Overlay Robot - Screen analysis, safe automation and holographic cursor" />

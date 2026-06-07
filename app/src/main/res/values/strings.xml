@@ -1,21 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">LML Overlay Robot V6</string>
-    <string name="robot_label">LML AGI ASSISTANT</string>
-    <string name="enable_overlay">Enable Overlay Permission</string>
-    <string name="open_accessibility">Open Accessibility Settings</string>
-    <string name="launch_robot">Launch Floating Robot</string>
-    <string name="scan">SCAN</string>
-    <string name="rec">REC</string>
-    <string name="stop_rec">STOP REC</string>
-    <string name="play_point">PLAY POINTAGE</string>
-    <string name="play_simulation">PLAY SIMULATION</string>
-    <string name="auto_safe">AUTO SAFE</string>
-    <string name="assisted">ASSISTÉ</string>
-    <string name="validate">VALIDER</string>
-    <string name="skip">PASSER</string>
-    <string name="clear">CLEAR</string>
-    <string name="emergency_stop">STOP URGENCE</string>
-    <string name="brain">BRAIN</string>
-    <string name="exit">EXIT</string>
+    <string name="overlay_permission">Autoriser l'overlay</string>
+    <string name="accessibility_permission">Ouvrir Accessibilité</string>
+    <string name="launch_robot">Lancer Robot Flottant</string>
 </resources>
